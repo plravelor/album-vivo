@@ -1,0 +1,11 @@
+{
+  "name": "Álbum Vivo — Fotografías que cobran vida",
+  "short_name": "Álbum Vivo",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f3",
+  "theme_color": "#213948",
+  "description": "Reconoce fotografías impresas y reproduce los videos asociados en realidad aumentada.",
+  "icons": [{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
+}

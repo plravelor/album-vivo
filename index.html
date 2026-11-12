@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#213948">
   <meta name="description" content="Álbum Vivo: fotografías impresas que se convierten en videos mediante realidad aumentada.">
   <title>Álbum Vivo · Realidad aumentada</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Álbum Vivo">
   <link rel="stylesheet" href="./styles.css">
   <script type="importmap">
     {"imports": {
@@ -20,7 +23,7 @@
   <div class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">◩</span><div><strong>Álbum Vivo</strong><small>Fotografías que cobran vida</small></div></div>
-      <span class="version">Prototipo 1.0</span>
+      <span class="version">Prototipo 2.0</span>
     </header>
     <main>
       <div class="hero">
@@ -36,6 +39,13 @@
         <h2>Ver los recuerdos</h2>
         <p id="published-state" class="status">Buscando un álbum publicado…</p>
         <div id="published-summary" class="preview-grid" hidden></div>
+        <label class="tuning-field">Seguimiento al mover el teléfono
+          <select id="tracking-mode">
+            <option value="balanced" selected>Equilibrado (recomendado)</option>
+            <option value="stable">Más estable (puede reaccionar más lento)</option>
+            <option value="responsive">Más rápido (puede vibrar más)</option>
+          </select>
+        </label>
         <div class="actions">
           <button id="watch-published" class="primary" type="button" disabled>Iniciar cámara</button>
           <button id="open-create" class="secondary" type="button">Crear mi primer álbum</button>
@@ -44,8 +54,16 @@
       </section>
       <section id="create-section" class="panel" aria-labelledby="tab-create" hidden>
         <h2>Crea tus asociaciones sin programar</h2>
-        <p>Elige una fotografía JPG/PNG y un video MP4 para cada recuerdo. La página prepara el archivo de reconocimiento y el paquete del álbum.</p>
+        <p>Sube un video MP4 por recuerdo. Extraeremos automáticamente su primer fotograma para imprimirlo en alta calidad y asociarlo al video. Puedes elegir otro instante si lo prefieres.</p>
         <label class="field">Título del álbum <input id="album-title" type="text" maxlength="70" value="Mis recuerdos" autocomplete="off"></label>
+        <label class="tuning-field">Cómo cobra vida la fotografía
+          <select id="intro-duration">
+            <option value="0">Directamente a velocidad normal</option>
+            <option value="400">Transición corta · 400 ms</option>
+            <option value="700" selected>Transición suave · 700 ms</option>
+            <option value="1000">Transición lenta · 1000 ms</option>
+          </select>
+        </label>
         <div id="pair-list" class="pair-list"></div>
         <button id="add-pair" type="button" class="add-btn">＋ Añadir otra fotografía</button>
         <div class="actions">
@@ -57,7 +75,8 @@
         <div id="prepared-guide" class="success-note" hidden>
           <strong>Álbum preparado.</strong> Descarga el ZIP, descomprímelo y publica los archivos de su carpeta <code>album/</code> dentro de la carpeta <code>album/</code> de tu repositorio. Recarga esta página para verlo desde otro teléfono. <a href="./GUIA_GITHUB.md" target="_blank" rel="noopener">Consulta la guía.</a>
         </div>
-        <p class="hint"><strong>Privacidad:</strong> en este prototipo, si publicas el paquete en GitHub Pages, las fotografías y los videos publicados serán accesibles mediante enlaces públicos. Usa material de prueba que puedas compartir.</p>
+        <p class="hint"><strong>Impresión:</strong> el JPG sale del video original, sin captura de pantalla. Para mayor calidad usa videos 4K. Si el primer fotograma está oscuro, mueve el selector hasta uno nítido y pulsa «Elegir este fotograma». El video comenzará desde ese instante.</p>
+        <p class="hint"><strong>Privacidad:</strong> si publicas el paquete en GitHub Pages, las fotografías y videos serán accesibles mediante enlaces públicos. Usa material que puedas compartir.</p>
       </section>
     </main>
     <footer>Proyecto independiente construido con MindAR y Three.js. <a href="https://hiukim.github.io/mind-ar-js-doc/" rel="noopener" target="_blank">Documentación técnica</a></footer>

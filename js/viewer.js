@@ -13,6 +13,82 @@ const closeButton = document.getElementById('close-ar');
 let active = null;
 let busy = false;
 
+// Menos vibración supone algo más de retraso al mover bruscamente el móvil.
+const TRACKING = {
+  stable: {filterMinCF:0.0005,filterBeta:12},
+  balanced: {filterMinCF:0.001,filterBeta:70},
+  responsive: {filterMinCF:0.001,filterBeta:1000}
+};
+const MIN_PLAY_RATE = 0.25;
+
+function animateIntro(entry, introMs) {
+  if (entry.animation) cancelAnimationFrame(entry.animation);
+  entry.video.playbackRate = introMs > 0 ? MIN_PLAY_RATE : 1;
+  if (!introMs) return;
+  const begin = performance.now();
+  const step = (now) => {
+    if (!entry.visible) return;
+    const p = Math.min(1, Math.max(0, (now - begin) / introMs));
+    const eased = 1 - Math.pow(1-p,3);
+    entry.video.playbackRate = MIN_PLAY_RATE + (1-MIN_PLAY_RATE)*eased;
+    if (p < 1) entry.animation = requestAnimationFrame(step);
+    else { entry.animation = null; entry.video.playbackRate = 1; }
+  };
+  entry.animation = requestAnimationFrame(step);
+}
+
+function cancelIntro(entry) {
+  if (entry.animation) cancelAnimationFrame(entry.animation);
+  entry.animation = null;
+  entry.video.playbackRate = 1;
+}
+
+async function startEntryPlayback(entry, introMs) {
+  const v = entry.video;
+  const serial = ++entry.serial;
+  cancelIntro(entry);
+  v.pause();
+  const beginAt = Number.isFinite(entry.it.startAt) ? entry.it.startAt : 0;
+  try {
+    if (v.readyState < 1) {
+      await new Promise((resolve,reject) => {
+        const ready=()=>{cleanup();resolve();};
+        const fail=()=>{cleanup();reject(new Error('No se pudo cargar el video.'));};
+        const timer=setTimeout(fail,12000);
+        const cleanup=()=>{clearTimeout(timer);v.removeEventListener('loadedmetadata',ready);v.removeEventListener('error',fail);};
+        v.addEventListener('loadedmetadata',ready,{once:true});
+        v.addEventListener('error',fail,{once:true});
+        v.load();
+      });
+    }
+    if (!entry.visible || serial !== entry.serial) return;
+    const target = Math.min(beginAt,Math.max(0,(v.duration || beginAt+1)-0.04));
+    if (Math.abs(v.currentTime-target)>0.045) {
+      await new Promise((resolve,reject) => {
+        const ready=()=>{cleanup();resolve();};
+        const fail=()=>{cleanup();reject(new Error('No se pudo posicionar el video.'));};
+        const timer=setTimeout(fail,9000);
+        const cleanup=()=>{clearTimeout(timer);v.removeEventListener('seeked',ready);v.removeEventListener('error',fail);};
+        v.addEventListener('seeked',ready,{once:true});
+        v.addEventListener('error',fail,{once:true});
+        v.currentTime=target;
+      });
+    }
+    if (!entry.visible || serial !== entry.serial) return;
+    // El vídeo arranca a baja velocidad y se acelera gradualmente.
+    v.playbackRate=introMs>0?MIN_PLAY_RATE:1;
+    await v.play();
+    if (entry.visible && serial === entry.serial) animateIntro(entry,introMs);
+    else v.pause();
+  } catch (err) {
+    if (entry.visible && serial===entry.serial) {
+      bottomStatus.textContent='No se pudo iniciar el video. Comprueba MP4 H.264 y pulsa Activar sonido.';
+      console.warn('Reproducción AR:', err);
+    }
+  }
+}
+
+
 export async function loadPublishedAlbum() {
   const base = new URL('./album/', window.location.href);
   const response = await fetch(new URL('manifest.json', base), {cache:'no-store'});
@@ -77,6 +153,9 @@ export async function closeAR() {
     await old.mindar.stop();
   } catch(err) { console.warn('Al detener la cámara:', err); }
   for (const item of old.entries) {
+    item.visible=false;
+    item.serial++;
+    cancelIntro(item);
     item.video.pause();
     item.video.removeAttribute('src');
     item.video.load();
@@ -103,9 +182,15 @@ export async function startAR(album) {
     hint.textContent = 'Preparando cámara y fotografías…';
     bottomStatus.textContent = `Álbum: ${manifest.title}`;
     soundButton.hidden = true;
+    const tracking = document.getElementById('tracking-mode')?.value || 'balanced';
+    const settings = TRACKING[tracking] || TRACKING.balanced;
+    const introMs = Number.isFinite(manifest.introMs) ? Math.min(2000,Math.max(0,manifest.introMs)) : 700;
     mindar = new MindARThree({container:stage,
                               imageTargetSrc:album.imageTargetSrc,
                               maxTrack:1,
+                              ...settings,
+                              warmupTolerance:2,
+                              missTolerance:5,
                               uiLoading:'no', uiScanning:'no', uiError:'no'});
     const {renderer, scene, camera} = mindar;
     let current = null;
@@ -116,11 +201,12 @@ export async function startAR(album) {
       texture.minFilter = THREE.LinearFilter;
       texture.magFilter = THREE.LinearFilter;
       texture.generateMipmaps = false;
-      const geometry = new THREE.PlaneGeometry(1, 1 / it.aspect);
+      // Margen del 1,2 % para que no se aprecie una fina orilla del papel.
+      const geometry = new THREE.PlaneGeometry(1.012, 1.012 / it.aspect);
       const material = new THREE.MeshBasicMaterial({map:texture, side:THREE.DoubleSide, depthTest:false});
       const anchor = mindar.addAnchor(it.targetIndex);
       anchor.group.add(new THREE.Mesh(geometry, material));
-      const entry = {it, video, texture, geometry, material};
+      const entry = {it, video, texture, geometry, material, visible:false, serial:0, animation:null};
       entries.push(entry);
       video.addEventListener('loadedmetadata', () => coverCrop(texture, video, it.aspect));
       video.addEventListener('error', () => {
@@ -128,18 +214,23 @@ export async function startAR(album) {
       });
       anchor.onTargetFound = () => {
         if (current && current !== entry) {
+          current.visible = false;
+          current.serial++;
+          cancelIntro(current);
           current.video.pause();
-          current.video.currentTime = 0;
         }
         current = entry;
-        video.currentTime = 0;
-        video.muted = true; // compatibilidad inicial con autoplay en móviles
-        video.play().catch(() => { bottomStatus.textContent = 'Toca «Activar sonido» para iniciar el video.'; });
+        entry.visible = true;
+        video.muted = true;
         hint.textContent = it.title;
         bottomStatus.textContent = 'El video se reproduce sobre la fotografía';
         soundButton.hidden = false;
+        void startEntryPlayback(entry, introMs);
       };
       anchor.onTargetLost = () => {
+        entry.visible = false;
+        entry.serial++;
+        cancelIntro(entry);
         video.pause();
         if (current === entry) {
           current = null;
