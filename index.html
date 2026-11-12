@@ -9,7 +9,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Álbum Vivo">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=23">
   <script type="importmap">
     {"imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
@@ -17,13 +17,13 @@
     }}
   </script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
-  <script type="module" src="./js/app.js"></script>
+  <script type="module" src="./js/app.js?v=23"></script>
 </head>
 <body>
   <div class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">◩</span><div><strong>Álbum Vivo</strong><small>Fotografías que cobran vida</small></div></div>
-      <span class="version">Prototipo 2.0</span>
+      <span class="version">Prototipo 2.3</span>
     </header>
     <main>
       <div class="hero">
@@ -54,7 +54,7 @@
       </section>
       <section id="create-section" class="panel" aria-labelledby="tab-create" hidden>
         <h2>Crea tus asociaciones sin programar</h2>
-        <p>Sube un video MP4 por recuerdo. Extraeremos automáticamente su primer fotograma para imprimirlo en alta calidad y asociarlo al video. Puedes elegir otro instante si lo prefieres.</p>
+        <p>Sube tu video original MOV, MP4, M4V, WebM, AVI o MKV. Extraeremos un fotograma para imprimir y podrás elegir otro instante. Si hace falta, convertiremos una copia a MP4 compatible.</p>
         <label class="field">Título del álbum <input id="album-title" type="text" maxlength="70" value="Mis recuerdos" autocomplete="off"></label>
         <label class="tuning-field">Cómo cobra vida la fotografía
           <select id="intro-duration">
@@ -65,7 +65,7 @@
           </select>
         </label>
         <div id="pair-list" class="pair-list"></div>
-        <button id="add-pair" type="button" class="add-btn">＋ Añadir otra fotografía</button>
+        <button id="add-pair" type="button" class="add-btn">＋ Añadir otro video</button>
         <div class="actions">
           <button id="prepare" type="button" class="primary">Preparar álbum</button>
           <button id="download" type="button" class="secondary" disabled>Descargar paquete ZIP</button>
@@ -75,7 +75,8 @@
         <div id="prepared-guide" class="success-note" hidden>
           <strong>Álbum preparado.</strong> Descarga el ZIP, descomprímelo y publica los archivos de su carpeta <code>album/</code> dentro de la carpeta <code>album/</code> de tu repositorio. Recarga esta página para verlo desde otro teléfono. <a href="./GUIA_GITHUB.md" target="_blank" rel="noopener">Consulta la guía.</a>
         </div>
-        <p class="hint"><strong>Impresión:</strong> el JPG sale del video original, sin captura de pantalla. Para mayor calidad usa videos 4K. Si el primer fotograma está oscuro, mueve el selector hasta uno nítido y pulsa «Elegir este fotograma». El video comenzará desde ese instante.</p>
+        <p class="hint"><strong>Impresión:</strong> generamos el JPG desde el archivo original cuando el navegador puede decodificarlo; no hace falta pasar por WhatsApp. Si el formato exige conversión previa, el fotograma tendrá la resolución de esa copia. Para mayor calidad usa los originales 4K.</p>
+        <p class="hint"><strong>Duración:</strong> por defecto cada foto reproduce hasta 30 segundos. Puedes elegir 45 segundos o el video completo. Si deseas que el archivo descargado también quede recortado, activa la conversión en cada recuerdo.</p>
         <p class="hint"><strong>Privacidad:</strong> si publicas el paquete en GitHub Pages, las fotografías y videos serán accesibles mediante enlaces públicos. Usa material que puedas compartir.</p>
       </section>
     </main>

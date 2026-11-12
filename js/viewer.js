@@ -2,7 +2,7 @@
 // Recibe un manifest y rutas locales o remotas, sin saber donde esta alojado el album.
 import * as THREE from 'three';
 import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
-import {validateManifest} from './common.js';
+import {validateManifest} from './common.js?v=23';
 
 const overlay = document.getElementById('ar-overlay');
 const stage = document.getElementById('ar-stage');
@@ -110,7 +110,7 @@ function createHiddenVideo(url) {
   v.playsInline = true;
   v.setAttribute('playsinline', '');
   v.setAttribute('webkit-playsinline', '');
-  v.loop = true;
+  v.loop = false; // Álbum v2.3: el video se detiene al llegar a 30/45 s, o a su final.
   v.muted = true;
   v.setAttribute('muted', '');
   v.disablePictureInPicture = true;
@@ -207,6 +207,15 @@ export async function startAR(album) {
       const anchor = mindar.addAnchor(it.targetIndex);
       anchor.group.add(new THREE.Mesh(geometry, material));
       const entry = {it, video, texture, geometry, material, visible:false, serial:0, animation:null};
+      // Los álbumes anteriores (sin endAt) siguen repitiéndose normalmente.
+      video.loop = !Number.isFinite(it.endAt);
+      video.addEventListener('timeupdate', () => {
+        if (entry.visible && Number.isFinite(it.endAt) && video.currentTime >= it.endAt - 0.025) {
+          video.pause();
+          cancelIntro(entry);
+          bottomStatus.textContent = 'Recuerdo terminado. Cambia de foto o vuelve a enfocarlo.';
+        }
+      });
       entries.push(entry);
       video.addEventListener('loadedmetadata', () => coverCrop(texture, video, it.aspect));
       video.addEventListener('error', () => {

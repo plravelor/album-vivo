@@ -1,0 +1,12 @@
+ÁLBUM VIVO 2.3 — ACTUALIZACIÓN ACUMULATIVA
+
+1. Abre GitHub Desktop > album-vivo > Repository > Show in Finder.
+2. Copia los archivos y la carpeta js de este ZIP encima del repositorio.
+3. No borres la carpeta album de tu repositorio, con tus recuerdos anteriores.
+4. En GitHub Desktop: Commit to main > Push origin.
+5. Abre https://plravelor.github.io/album-vivo/?v=23
+6. Debe decir Prototipo 2.3 y aparecer Recuerdo 1 al entrar a Crear álbum.
+7. Prueba primero con UN MOV de iPhone o MP4 original. Elige 30/45/completo.
+8. Si marcas convertir, el proceso puede tardar y requiere descargar FFmpeg.
+
+Lee GUIA-ACTUALIZACION-v2.3.md para instrucciones completas.

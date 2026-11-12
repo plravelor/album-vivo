@@ -1,6 +1,6 @@
-import {setupEditor} from './editor.js';
-import {loadPublishedAlbum, startAR} from './viewer.js';
-import {setStatus} from './common.js';
+import {setupEditor} from './editor.js?v=23';
+import {loadPublishedAlbum, startAR} from './viewer.js?v=23';
+import {setStatus} from './common.js?v=23';
 
 const tabWatch = document.getElementById('tab-watch');
 const tabCreate = document.getElementById('tab-create');
@@ -25,7 +25,13 @@ tabWatch.addEventListener('click', () => selectTab('watch'));
 tabCreate.addEventListener('click', () => selectTab('create'));
 document.getElementById('open-create').addEventListener('click', () => selectTab('create'));
 watchButton.addEventListener('click', () => { if (published) startAR(published); });
-setupEditor(startAR);
+try {
+  setupEditor(startAR);
+} catch (err) {
+  console.error('Error al iniciar el editor:', err);
+  setStatus(document.getElementById('builder-status'),
+    `No se pudo iniciar el editor: ${err.message}. Recarga la página y, si persiste, comparte este mensaje.`, true);
+}
 
 async function load() {
   try {

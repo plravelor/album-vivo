@@ -1,278 +1,289 @@
-// Álbum Vivo v2 — editor sin programar: un video produce la foto imprimible,
-// el target AR y la asociación. La imagen de impresión conserva los píxeles
-// que el navegador logra decodificar del video original.
+// Álbum Vivo v2.3 — editor de recuerdos multipropósito.
+// Acepta archivos originales MOV, MP4, M4V, WebM, AVI y MKV.
+// Se prioriza extraer el fotograma del archivo ORIGINAL, antes de cualquier conversión.
 import { Compiler } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js';
-import { MAX_ITEMS, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, SCHEMA_VERSION,
-  createItem, downloadBlob, blobToURL, normalizeImage, setStatus } from './common.js';
-
+import { MAX_ITEMS, MAX_IMAGE_BYTES, SCHEMA_VERSION,
+  createItem, downloadBlob, blobToURL, normalizeImage, setStatus } from './common.js?v=23';
+import { convertToMP4 } from './media-converter.js?v=23';
 const $ = (selector, node) => node.querySelector(selector);
+const MI_B = 1024*1024;
+const GITHUB_MAX = 100*MI_B;
+const ACCEPT_EXT = /\.(mp4|m4v|mov|webm|avi|mkv)$/i;
+const mp4Compatible = (name) => /\.mp4$/i.test(name);
+const niceSize = (bytes) => `${(bytes / MI_B).toFixed(1)} MiB`;
 
-function waitEvent(node, events, timeoutMs = 14000) {
+function loadMedia(video, sourceURL, timeout=24000) {
   return new Promise((resolve, reject) => {
-    let done = false;
-    const finish = (err) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      events.forEach(ev => node.removeEventListener(ev, ok));
-      node.removeEventListener('error', fail);
-      err ? reject(err) : resolve();
+    let done=false;
+    const finish=(error) => {
+      if(done)return;
+      done=true; clearTimeout(timer);
+      ['loadeddata','canplay','error'].forEach(ev=>video.removeEventListener(ev,onEvent));
+      error?reject(error):resolve();
     };
-    const ok = () => finish();
-    const fail = () => finish(new Error('El navegador no pudo decodificar el video. Prueba MP4 H.264.'));
-    const timer = setTimeout(() => finish(new Error('Se agotó el tiempo al leer el fotograma del video.')), timeoutMs);
-    events.forEach(ev => node.addEventListener(ev, ok, {once: true}));
-    node.addEventListener('error', fail, {once: true});
+    const onEvent=(event) => {
+      if(event.type==='error') finish(new Error('Este navegador no puede abrir directamente el códec de este video.'));
+      else if(video.videoWidth && video.videoHeight && video.readyState>=2) finish();
+    };
+    const timer=setTimeout(()=>finish(new Error('El navegador tardó demasiado en abrir este video.')),timeout);
+    ['loadeddata','canplay','error'].forEach(ev=>video.addEventListener(ev,onEvent));
+    video.src=sourceURL; video.load();
   });
 }
-
-async function seekFrame(video, time) {
-  if (video.readyState < 1) await waitEvent(video, ['loadedmetadata']);
-  const maxTime = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.04) : time;
-  const requested = Math.max(0, Math.min(time, maxTime));
-  video.pause();
-  if (Math.abs(video.currentTime - requested) > 0.015) {
-    // Se adjunta el listener antes de cambiar la posición para evitar carreras.
-    const promise = waitEvent(video, ['seeked']);
-    video.currentTime = requested;
-    await promise;
-  } else if (video.seeking) {
-    await waitEvent(video, ['seeked']);
-  }
-  if (video.readyState < 2) await waitEvent(video, ['loadeddata', 'canplay']);
-  return requested;
+function awaitEvent(el, name, timeout=18000) {
+  return new Promise((resolve,reject)=>{
+    let finished=false;
+    const clear=()=>{el.removeEventListener(name,ok);el.removeEventListener('error',fail);clearTimeout(timer);};
+    const ok=()=>{if(finished)return;finished=true;clear();resolve();};
+    const fail=()=>{if(finished)return;finished=true;clear();reject(new Error('Error al leer el video.'));};
+    const timer=setTimeout(()=>{if(finished)return;finished=true;clear();reject(new Error('Tiempo de espera al elegir el fotograma.'));},timeout);
+    el.addEventListener(name,ok,{once:true}); el.addEventListener('error',fail,{once:true});
+  });
 }
-
-async function makeFrame(video, seconds) {
-  const actual = await seekFrame(video, seconds);
-  const width = video.videoWidth, height = video.videoHeight;
-  if (!width || !height) throw new Error('El video no informó una resolución válida.');
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext('2d').drawImage(video, 0, 0, width, height);
-  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.98));
-  if (!blob) throw new Error('No se pudo guardar el fotograma como JPG.');
-  return {blob, width, height, at:actual};
+async function captureVideoFrame(video, seconds) {
+  if(!video.videoWidth||!video.videoHeight) throw new Error('El navegador no pudo decodificar este video.');
+  video.pause();
+  const duration=Number.isFinite(video.duration)?video.duration:seconds+1;
+  const actual=Math.max(0,Math.min(seconds,Math.max(0,duration-.03)));
+  if(Math.abs(video.currentTime-actual)>.01) {
+    const waiting=awaitEvent(video,'seeked'); video.currentTime=actual; await waiting;
+  } else if(video.seeking) await awaitEvent(video,'seeked');
+  if(video.readyState<2) await awaitEvent(video,'loadeddata');
+  const width=video.videoWidth,height=video.videoHeight;
+  const canvas=document.createElement('canvas'); canvas.width=width;canvas.height=height;
+  const ctx=canvas.getContext('2d',{alpha:false});
+  if(!ctx) throw new Error('No se pudo crear el lienzo del fotograma.');
+  ctx.drawImage(video,0,0,width,height);
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.97));
+  canvas.width=0;canvas.height=0;
+  if(!blob)throw new Error('No se pudo guardar la fotografía.');
+  return {blob,width,height,at:actual};
 }
 
 export function setupEditor(onPreview) {
-  const list = document.getElementById('pair-list');
-  const add = document.getElementById('add-pair');
-  const prepare = document.getElementById('prepare');
-  const download = document.getElementById('download');
-  const preview = document.getElementById('preview');
-  const stateEl = document.getElementById('builder-status');
-  const guide = document.getElementById('prepared-guide');
-  let built = null;
-  let rowCounter = 0;
+  const list=document.getElementById('pair-list');
+  const add=document.getElementById('add-pair');
+  const prepare=document.getElementById('prepare');
+  const download=document.getElementById('download');
+  const preview=document.getElementById('preview');
+  const stateEl=document.getElementById('builder-status');
+  const guide=document.getElementById('prepared-guide');
+  let built=null,rowCounter=0;
+  const objectURLs=new Set();
 
   function invalidate() {
-    built = null;
-    download.disabled = true;
-    preview.disabled = true;
-    guide.hidden = true;
+    built=null;download.disabled=true;preview.disabled=true;guide.hidden=true;
   }
+  function ownURL(blob) {const u=URL.createObjectURL(blob);objectURLs.add(u);return u;}
+  function revoke(u) {if(u){URL.revokeObjectURL(u);objectURLs.delete(u);}}
   function disposeRow(row) {
-    const s = row._state;
-    s.version++;
-    if (s.videoURL) URL.revokeObjectURL(s.videoURL);
-    if (s.photoURL) URL.revokeObjectURL(s.photoURL);
-    s.videoURL = null;
-    s.photoURL = null;
+    const s=row._state;s.version++;
+    revoke(s.videoURL);revoke(s.photoURL);revoke(s.previewURL);
+    s.videoURL=s.photoURL=s.previewURL=null;
   }
-  function showFrame(row, frame) {
-    const s = row._state;
-    if (s.photoURL) URL.revokeObjectURL(s.photoURL);
-    s.frame = frame;
-    s.photoURL = URL.createObjectURL(frame.blob);
-    $('.frame-image', row).src = s.photoURL;
-    $('.frame-box', row).hidden = false;
-    $('.frame-info', row).textContent = `${frame.width} × ${frame.height} píxeles · Fotograma ${(frame.at).toFixed(2)} s · JPG de alta calidad`;
-    $('.save-photo', row).disabled = false;
+  function setRowInfo(row,message,error=false) {
+    const el=$('.video-hint',row);el.textContent=message;el.classList.toggle('error-hint',error);
   }
-  async function capture(row, when, version = row._state.version) {
-    const s = row._state;
-    if (!s.videoURL) throw new Error('Selecciona primero un video.');
-    const frame = await makeFrame($('.source-player', row), when);
-    if (s.version !== version || !row.isConnected) return null;
-    showFrame(row, frame);
-    return frame;
+  function showFrame(row,frame) {
+    const s=row._state;revoke(s.photoURL);
+    s.frame=frame; s.photoURL=ownURL(frame.blob);
+    $('.frame-image',row).src=s.photoURL;
+    $('.frame-box',row).hidden=false;
+    $('.frame-info',row).textContent=`${frame.width} × ${frame.height} píxeles · ${frame.at.toFixed(2)} s · JPG extraído sin captura de pantalla`;
+    $('.save-photo',row).disabled=false;
+  }
+  async function capture(row,at,version=row._state.version) {
+    const s=row._state;
+    if(!s.playableFile)throw new Error('Selecciona un video y comprueba que pueda abrirse.');
+    const frame=await captureVideoFrame($('.source-player',row),at);
+    if(s.version!==version||!row.isConnected)return null;
+    showFrame(row,frame);return frame;
+  }
+  function renumber() {
+    [...list.children].forEach((row,i)=>$('.pair-title',row).textContent=`Recuerdo ${i+1}`);
+    add.disabled=list.children.length>=MAX_ITEMS;
   }
   function appendPair() {
-    if (list.children.length >= MAX_ITEMS) {
-      setStatus(stateEl, `Máximo ${MAX_ITEMS} recuerdos en esta versión.`, true);
-      return;
-    }
-    invalidate();
-    const row = document.createElement('section');
-    row.className = 'pair';
-    row.dataset.row = String(++rowCounter);
-    row._state = {version:0, videoURL:null, photoURL:null, frame:null};
-    row.innerHTML = `<div class="pair-header"><span class="pair-title">Nuevo recuerdo</span><button class="pair-remove" type="button">Eliminar</button></div>
+    if(list.children.length>=MAX_ITEMS){setStatus(stateEl,`Máximo ${MAX_ITEMS} recuerdos por paquete.`,true);return;}
+    invalidate();const row=document.createElement('section');row.className='pair';row.dataset.row=String(++rowCounter);
+    row._state={version:0,sourceFile:null,playableFile:null,videoURL:null,previewURL:null,photoURL:null,frame:null,duration:0,convertedForPreview:false};
+    row.innerHTML=`<div class="pair-header"><span class="pair-title">Nuevo recuerdo</span><button class="pair-remove" type="button">Eliminar</button></div>
       <input type="text" class="pair-name" maxlength="80" placeholder="Nombre del recuerdo (opcional)" aria-label="Nombre del recuerdo">
-      <label class="video-field">Video original (MP4 H.264)
-        <input class="pair-video" type="file" accept=".mp4,video/mp4" required>
+      <label class="video-field">Video original (MOV de iPhone, MP4, M4V, WebM, AVI o MKV)
+        <input class="pair-video" type="file" accept="video/*,.mov,.mp4,.m4v,.webm,.avi,.mkv" required>
       </label>
+      <p class="mini-hint video-hint">Selecciona el video directamente desde Fotos o desde tu computador. No hace falta convertirlo mediante WhatsApp.</p>
       <div class="video-tools" hidden>
-        <p class="mini-hint">El primer fotograma se extrae automáticamente. También puedes elegir otro instante si el comienzo está oscuro o borroso.</p>
         <video class="source-player" muted playsinline preload="auto" controls></video>
         <div class="scrub-row"><input class="frame-time" type="range" min="0" max="0" step="0.05" value="0" aria-label="Escoger fotograma"><output class="frame-seconds">0.00 s</output></div>
         <div class="small-actions"><button class="secondary capture-frame" type="button">Elegir este fotograma</button><button class="secondary save-photo" type="button" disabled>Descargar JPG para imprimir</button></div>
         <div class="frame-box" hidden><img class="frame-image" alt="Fotograma extraído para imprimir"><p class="frame-info"></p></div>
+        <div class="video-settings">
+          <label class="setting-label">Duración al mirar la foto
+            <select class="clip-duration"><option value="30" selected>Hasta 30 segundos (recomendado)</option><option value="45">Hasta 45 segundos</option><option value="full">Video completo</option></select>
+          </label>
+          <label class="check-option"><input type="checkbox" class="make-mp4"> Convertir a MP4 H.264 y recortar físicamente el archivo exportado (más lento)</label>
+          <label class="setting-label">Resolución del video convertido (no afecta la fotografía del original)
+            <select class="convert-size"><option value="1920" selected>Hasta Full HD 1080p</option><option value="0">Mantener resolución de origen (más pesado)</option><option value="1280">Hasta 720p (más ligero)</option></select>
+          </label>
+          <p class="mini-hint">Sin la casilla de conversión, el límite de 30/45 s se aplica solo al reproducir el álbum; el MP4 publicado conserva el video completo. Si marcas la casilla, el archivo se convierte y recorta al exportarlo.</p>
+        </div>
       </div>
-      <details class="advanced-photo"><summary>Avanzado: usar otra fotografía en lugar del fotograma</summary>
-        <p class="mini-hint">Para una ilusión más natural, la fotografía y el primer instante reproducido deberían coincidir.</p>
-        <label>Fotografía alternativa (JPG/PNG)<input class="pair-photo" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png"></label>
+      <details class="advanced-photo"><summary>Avanzado: utilizar otra fotografía (JPG/PNG)</summary>
+        <p class="mini-hint">El fotograma del propio video suele dar el efecto más natural.</p>
+        <label>Foto alternativa <input class="pair-photo" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png"></label>
       </details>`;
-    const s = row._state;
-    const fileInput = $('.pair-video', row);
-    const player = $('.source-player', row);
-    const tools = $('.video-tools', row);
-    const timeInput = $('.frame-time', row);
-    const stamp = $('.frame-seconds', row);
-    fileInput.addEventListener('change', () => {
-      invalidate();
-      s.version++;
-      if (s.videoURL) URL.revokeObjectURL(s.videoURL);
-      if (s.photoURL) URL.revokeObjectURL(s.photoURL);
-      s.frame = null;
-      s.autoStarted = false;
-      s.photoURL = null;
-      $('.frame-box', row).hidden = true;
-      $('.save-photo', row).disabled = true;
-      const f = fileInput.files[0];
-      if (!f) {tools.hidden = true; player.removeAttribute('src'); return;}
-      if (!/\.mp4$/i.test(f.name) || f.size > MAX_VIDEO_BYTES) {
-        tools.hidden = true;
-        setStatus(stateEl, `El video debe ser MP4 y pesar menos de ${(MAX_VIDEO_BYTES/1048576).toFixed(0)} MiB para GitHub.`, true);
-        return;
+    const s=row._state;
+    const fileInput=$('.pair-video',row),player=$('.source-player',row),tools=$('.video-tools',row);
+    const timeInput=$('.frame-time',row),stamp=$('.frame-seconds',row);
+    fileInput.addEventListener('change',async()=>{
+      invalidate();s.version++;const token=s.version;
+      revoke(s.videoURL);revoke(s.previewURL);revoke(s.photoURL);
+      s.videoURL=s.previewURL=s.photoURL=null;s.frame=null;s.playableFile=null;s.sourceFile=null;s.convertedForPreview=false;
+      $('.frame-box',row).hidden=true;$('.save-photo',row).disabled=true;
+      const f=fileInput.files?.[0];
+      if(!f){tools.hidden=true;player.removeAttribute('src');return;}
+      if(!ACCEPT_EXT.test(f.name)&&!f.type.startsWith('video/')){
+        setRowInfo(row,'Formato desconocido. Selecciona MOV, MP4, M4V, WebM, AVI o MKV.',true);return;
       }
-      tools.hidden = false;
-      s.videoURL = URL.createObjectURL(f);
-      player.src = s.videoURL;
-      player.load();
-      setStatus(stateEl, `Leyendo el video de ${$('.pair-title', row).textContent.toLowerCase()}…`);
-    });
-    player.addEventListener('loadedmetadata', () => {
-      const end = Number.isFinite(player.duration) ? Math.max(0, player.duration - 0.04) : 0;
-      timeInput.max = String(end);
-      timeInput.value = '0';
-      stamp.textContent = '0.00 s';
-    });
-    player.addEventListener('loadeddata', async () => {
-      if (s.frame || s.autoStarted) return;
-      s.autoStarted = true;
-      const version = s.version;
+      s.sourceFile=f;s.playableFile=f;
+      s.videoURL=ownURL(f);
+      setRowInfo(row,`Leyendo ${f.name} (${niceSize(f.size)})…`);
+      tools.hidden=false;
+      $('.make-mp4',row).checked=!mp4Compatible(f.name);
       try {
-        await capture(row, 0, version);
-        if (s.version === version) setStatus(stateEl, 'Fotograma inicial extraído. Puedes descargarlo o escoger otro instante.');
-      } catch (e) {
-        if (s.version === version) setStatus(stateEl, `No se pudo extraer el fotograma: ${e.message}`, true);
-      } finally {s.autoStarted = false;}
-    });
-    timeInput.addEventListener('input', () => {
-      invalidate();
-      const time = Number(timeInput.value);
-      stamp.textContent = `${time.toFixed(2)} s`;
-      player.pause();
-      if (player.readyState >= 1) player.currentTime = time;
-    });
-    $('.capture-frame', row).addEventListener('click', async () => {
-      invalidate();
-      const button = $('.capture-frame', row);
-      button.disabled = true;
-      try { await capture(row, Number(timeInput.value)); }
-      catch(e) {setStatus(stateEl, e.message, true);}
-      finally {button.disabled = false;}
-    });
-    $('.save-photo', row).addEventListener('click', async () => {
-      // Si el usuario movió el selector después de extraer el fotograma, refrescarlo.
-      if (!s.frame || Math.abs(s.frame.at - Number(timeInput.value)) > 0.04) {
-        try {await capture(row, Number(timeInput.value));}
-        catch(e) {setStatus(stateEl, e.message, true); return;}
+        await loadMedia(player,s.videoURL);
+        if(token!==s.version)return;
+        s.duration=Number.isFinite(player.duration)?player.duration:0;
+        const end=Math.max(0,s.duration-0.04);
+        timeInput.max=String(end);timeInput.value='0';stamp.textContent='0.00 s';
+        await capture(row,0,token);
+        setRowInfo(row,`Original leído: ${player.videoWidth} × ${player.videoHeight} · ${s.duration.toFixed(1)} s · ${niceSize(f.size)}. Foto extraída del archivo original.`);
+      } catch(error) {
+        if(token!==s.version)return;
+        setRowInfo(row,`El navegador no abre este códec (${error.message}). Intentando crear una copia MP4 compatible en este equipo…`);
+        try {
+          const converted=await convertToMP4(f,{maxSide:1920,onStatus:m=>setRowInfo(row,m)});
+          if(token!==s.version)return;
+          s.playableFile=converted;s.convertedForPreview=true;
+          revoke(s.videoURL);s.videoURL=ownURL(converted);
+          await loadMedia(player,s.videoURL);
+          if(token!==s.version)return;
+          s.duration=Number.isFinite(player.duration)?player.duration:0;
+          timeInput.max=String(Math.max(0,s.duration-.04));timeInput.value='0';stamp.textContent='0.00 s';
+          await capture(row,0,token);
+          setRowInfo(row,'Convertido para vista previa. Este navegador no pudo extraer el JPG directamente del original: su resolución dependerá de la conversión.',false);
+        } catch(e) {if(token===s.version)setRowInfo(row,e.message,true);}
       }
-      const id = String([...list.children].indexOf(row)+1).padStart(3,'0');
-      downloadBlob(s.frame.blob, `foto-${id}-para-imprimir.jpg`);
+      if(f.size>GITHUB_MAX)setRowInfo(row,'Archivo original mayor que 100 MiB. Activa «Convertir a MP4» y elige 30 o 45 s para publicar en GitHub; puedes conservar el original por separado.',false);
     });
-    $('.pair-name', row).addEventListener('input', invalidate);
-    $('.pair-photo', row).addEventListener('change', invalidate);
-    $('.pair-remove', row).addEventListener('click', () => {disposeRow(row); row.remove(); invalidate(); renumber();});
-    list.appendChild(row);
-    renumber();
+    timeInput.addEventListener('input',()=>{
+      invalidate();const t=Number(timeInput.value);stamp.textContent=`${t.toFixed(2)} s`;
+      player.pause();if(player.readyState>=1)player.currentTime=t;
+    });
+    $('.capture-frame',row).addEventListener('click',async()=>{
+      invalidate();const button=$('.capture-frame',row);button.disabled=true;
+      try{await capture(row,Number(timeInput.value));}
+      catch(e){setRowInfo(row,e.message,true);}finally{button.disabled=false;}
+    });
+    $('.save-photo',row).addEventListener('click',async()=>{
+      if(!s.frame||Math.abs(s.frame.at-Number(timeInput.value))>.04){
+        try{await capture(row,Number(timeInput.value));}catch(e){setRowInfo(row,e.message,true);return;}
+      }
+      const id=String([...list.children].indexOf(row)+1).padStart(3,'0');
+      downloadBlob(s.frame.blob,`foto-${id}-para-imprimir.jpg`);
+    });
+    for(const selector of ['.pair-name','.pair-photo','.clip-duration','.make-mp4','.convert-size']){
+      $(selector,row).addEventListener(selector==='.pair-name'?'input':'change',invalidate);
+    }
+    $('.pair-remove',row).addEventListener('click',()=>{disposeRow(row);row.remove();invalidate();renumber();});
+    list.appendChild(row);renumber();
   }
-  function renumber() {
-    [...list.children].forEach((row, index) => $('.pair-title',row).textContent = `Recuerdo ${index+1}`);
-    add.disabled = list.children.length >= MAX_ITEMS;
-  }
-  add.addEventListener('click', appendPair);
-  appendPair();
-  document.getElementById('album-title').addEventListener('input', invalidate);
-  document.getElementById('intro-duration').addEventListener('change', invalidate);
+  add.addEventListener('click',appendPair);appendPair();
+  document.getElementById('album-title').addEventListener('input',invalidate);
+  document.getElementById('intro-duration').addEventListener('change',invalidate);
 
-  prepare.addEventListener('click', async () => {
-    if (!window.JSZip) {setStatus(stateEl, 'No cargó JSZip. Comprueba la conexión a internet.', true); return;}
-    const rows = [...list.children];
-    if (!rows.length) {setStatus(stateEl, 'Añade por lo menos un video.', true); return;}
-    const pairs = [];
-    invalidate();
-    prepare.disabled = true;
+  prepare.addEventListener('click',async()=>{
+    if(!window.JSZip){setStatus(stateEl,'No se pudo cargar JSZip. Revisa la conexión.',true);return;}
+    const rows=[...list.children];
+    if(!rows.length){setStatus(stateEl,'Añade por lo menos un video.',true);return;}
+    const pairs=[];invalidate();prepare.disabled=true;
     try {
-      for (const [index,row] of rows.entries()) {
-        const video = $('.pair-video',row).files[0];
-        if (!video || !/\.mp4$/i.test(video.name) || video.size > MAX_VIDEO_BYTES) throw new Error(`Recuerdo ${index+1}: necesitas un MP4 de menos de 24 MiB.`);
-        const alternative = $('.pair-photo',row).files[0];
-        if (alternative && (alternative.size > MAX_IMAGE_BYTES || !/\.(jpg|jpeg|png)$/i.test(alternative.name))) throw new Error(`Recuerdo ${index+1}: usa un JPG/PNG de menos de 12 MiB.`);
-        let frame = row._state.frame;
-        const selectedTime = Number($('.frame-time',row).value);
-        if (!frame || Math.abs(frame.at - selectedTime) > 0.04) {
-          setStatus(stateEl, `Extrayendo fotograma ${index+1} de ${rows.length}…`);
-          frame = await capture(row, selectedTime);
+      for(const [index,row] of rows.entries()) {
+        const s=row._state;const source=s.sourceFile;
+        if(!source)throw new Error(`Recuerdo ${index+1}: selecciona un archivo de video.`);
+        if(!s.playableFile||!s.frame)throw new Error(`Recuerdo ${index+1}: el video todavía no se ha podido leer. Revisa el mensaje bajo el selector.`);
+        const alternative=$('.pair-photo',row).files[0];
+        if(alternative&&(alternative.size>MAX_IMAGE_BYTES||!/\.(jpg|jpeg|png)$/i.test(alternative.name)))throw new Error(`Recuerdo ${index+1}: la fotografía alternativa debe ser JPG/PNG de menos de 12 MiB.`);
+        const selectedTime=Number($('.frame-time',row).value);
+        let frame=s.frame;
+        if(Math.abs(frame.at-selectedTime)>.04){
+          setStatus(stateEl,`Extrayendo fotograma ${index+1}/${rows.length}…`);
+          frame=await capture(row,selectedTime);
         }
-        if (!frame) throw new Error(`No se pudo crear la fotografía del recuerdo ${index+1}.`);
-        const photo = alternative || new File([frame.blob], 'fotograma.jpg', {type:'image/jpeg'});
-        pairs.push({video, photo, title:$('.pair-name',row).value.trim(), startAt:frame.at, printWidth:frame.width, printHeight:frame.height});
+        if(!frame)throw new Error(`Recuerdo ${index+1}: no se pudo extraer la foto.`);
+        const printPhoto=alternative||new File([frame.blob],'fotograma.jpg',{type:'image/jpeg'});
+        const selectedClip=$('.clip-duration',row).value;
+        const maxSeconds=selectedClip==='full'?null:Number(selectedClip);
+        // Se seleccionan los primeros 30/45 segundos A PARTIR del fotograma.
+        const remaining=Math.max(0.1,(s.duration||selectedTime+3600)-selectedTime);
+        const seconds=maxSeconds===null?null:Math.min(maxSeconds,remaining);
+        const userWantsConvert=$('.make-mp4',row).checked;
+        // MOV y formatos ajenos a MP4 deben convertirse para que los vean otros teléfonos.
+        const convert=userWantsConvert||!mp4Compatible(source.name);
+        let publishVideo=source;
+        let videoStart=selectedTime;
+        let videoEnd=seconds===null?null:selectedTime+seconds;
+        if(convert){
+          setStatus(stateEl,`Convirtiendo recuerdo ${index+1}/${rows.length}. Puede tardar con videos originales grandes…`);
+          // Si el origen no pudo decodificarse, el fotograma elegido ya está en la copia compatible;
+          // para evitar desplazamientos se utiliza esa copia como origen al preparar la versión publicada.
+          const basis=s.convertedForPreview?s.playableFile:source;
+          publishVideo=await convertToMP4(basis,{
+            startSec:selectedTime,
+            durationSec:seconds,
+            maxSide:Number($('.convert-size',row).value),
+            onStatus:message=>setStatus(stateEl,`Recuerdo ${index+1}: ${message}`)
+          });
+          videoStart=0;videoEnd=null; // El video exportado ya está recortado físicamente.
+        }
+        if(!mp4Compatible(publishVideo.name))throw new Error(`Recuerdo ${index+1}: el archivo publicado debe ser MP4.`);
+        if(publishVideo.size>GITHUB_MAX)throw new Error(`Recuerdo ${index+1}: el MP4 pesa ${niceSize(publishVideo.size)} y GitHub rechaza archivos mayores que 100 MiB. Selecciona «Convertir», 30/45 segundos y/o 720p.`);
+        pairs.push({photo:printPhoto,video:publishVideo,title:$('.pair-name',row).value.trim(),
+          startAt:videoStart,endAt:videoEnd,printWidth:frame.width,printHeight:frame.height});
       }
-      const canvases=[];
-      for (const [index,pair] of pairs.entries()) {
-        const data=await normalizeImage(pair.photo);
-        canvases.push(data.canvas);
-        pair.aspect=data.aspect;
-        if ($('.pair-photo',rows[index]).files[0]) {pair.printWidth=data.width; pair.printHeight=data.height;}
-        setStatus(stateEl, `Preparando imágenes ${index+1}/${pairs.length} para reconocimiento AR…`);
+      const targets=[];
+      for(const [index,pair] of pairs.entries()){
+        const image=await normalizeImage(pair.photo);targets.push(image.canvas);pair.aspect=image.aspect;
+        setStatus(stateEl,`Preparando imagen ${index+1}/${pairs.length} para MindAR…`);
       }
-      const compiler = new Compiler();
-      await compiler.compileImageTargets(canvases, fraction => {
+      const compiler=new Compiler();
+      await compiler.compileImageTargets(targets, fraction=>{
         const pct=fraction<=1?Math.round(fraction*100):Math.round(fraction);
-        setStatus(stateEl, `Compilando reconocimiento: ${Math.min(100,Math.max(0,pct))}%`);
+        setStatus(stateEl,`Compilando reconocimiento: ${Math.max(0,Math.min(100,pct))}%`);
       });
-      const data = await Promise.resolve(compiler.exportData());
-      if (!data || !data.byteLength) throw new Error('MindAR no pudo crear targets.mind.');
-      const title = document.getElementById('album-title').value.trim()||'Mis recuerdos';
-      const introMs = Number(document.getElementById('intro-duration').value)||0;
-      const manifest = {schemaVersion:SCHEMA_VERSION,title,createdAt:new Date().toISOString(),targets:'targets.mind',introMs,
-        items:pairs.map(createItem)};
-      const zip = new window.JSZip();
-      const folder=zip.folder('album');
-      folder.file('targets.mind',data);
-      folder.file('manifest.json',JSON.stringify(manifest,null,2));
-      pairs.forEach((pair,index)=>{
-        folder.file(manifest.items[index].photo,pair.photo);
-        folder.file(manifest.items[index].video,pair.video);
-      });
-      folder.file('COMO_PUBLICAR.txt','1. Descomprime el ZIP.\n2. Copia el contenido de album/ en la carpeta album/ de tu repositorio.\n3. Sube los cambios con GitHub Desktop.\n4. Las fotografias de este paquete ya se extrajeron de tus videos a resolucion de origen (JPG alta calidad). Imprime esas fotos.\n5. Todo el material publicado mediante GitHub Pages sera accesible por internet.\n');
-      setStatus(stateEl,'Creando paquete para publicar…');
-      const blob=await zip.generateAsync({type:'blob',compression:'STORE'});
-      const imageTargetSrc=blobToURL(data,'application/octet-stream');
-      const videoURLs=pairs.map(pair=>URL.createObjectURL(pair.video));
-      built={blob,manifest,imageTargetSrc,items:manifest.items.map((it,index)=>({...it,videoURL:videoURLs[index]}))};
-      download.disabled=false; preview.disabled=false; guide.hidden=false;
-      setStatus(stateEl,`${pairs.length} recuerdo(s) preparados · ${(blob.size/1048576).toFixed(1)} MiB. Las fotos para imprimir están dentro del ZIP y se pueden descargar individualmente.`);
-    } catch(e) {
-      console.error(e);
-      setStatus(stateEl,`No se pudo preparar el álbum: ${e.message||String(e)}`,true);
-    } finally {prepare.disabled=false;}
+      const data=await Promise.resolve(compiler.exportData());
+      if(!data?.byteLength)throw new Error('No se pudo crear targets.mind.');
+      const title=document.getElementById('album-title').value.trim()||'Mis recuerdos';
+      const introMs=Number(document.getElementById('intro-duration').value)||0;
+      const manifest={schemaVersion:SCHEMA_VERSION,title,createdAt:new Date().toISOString(),
+        targets:'targets.mind',introMs,items:pairs.map(createItem)};
+      const zip=new window.JSZip();const folder=zip.folder('album');
+      folder.file('targets.mind',data);folder.file('manifest.json',JSON.stringify(manifest,null,2));
+      for(let index=0;index<pairs.length;index++){
+        folder.file(manifest.items[index].photo,pairs[index].photo);
+        folder.file(manifest.items[index].video,pairs[index].video);
+      }
+      folder.file('COMO_PUBLICAR.txt',`ÁLBUM VIVO 2.3\n1. Descomprime este ZIP.\n2. Copia el contenido de su carpeta album/ en album/ del repositorio.\n3. Publica con GitHub Desktop.\n4. Imprime los JPG incluidos.\n5. Para videos mayores de 100 MiB usa conversion o alojamiento alternativo.\n6. Conserva aparte todos los originales MOV de alta calidad.\n`);
+      setStatus(stateEl,'Creando ZIP. Si los archivos son grandes puede tardar y consumir memoria…');
+      const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
+      built={blob,manifest,imageTargetSrc:blobToURL(data,'application/octet-stream'),
+        items:manifest.items.map((it,i)=>({...it,videoURL:ownURL(pairs[i].video)}))};
+      download.disabled=false;preview.disabled=false;guide.hidden=false;
+      setStatus(stateEl,`${pairs.length} recuerdo(s) preparados · ZIP ${niceSize(blob.size)}. Fotografías para imprimir y MP4 compatibles incluidos.`);
+    }catch(e){console.error(e);setStatus(stateEl,`No se pudo preparar: ${e.message||e}`,true);}
+    finally{prepare.disabled=false;}
   });
-  download.addEventListener('click',()=>{if(built)downloadBlob(built.blob,'album-vivo-contenido-v2.zip');});
+  download.addEventListener('click',()=>{if(built)downloadBlob(built.blob,'album-vivo-contenido-v2.3.zip');});
   preview.addEventListener('click',()=>{if(built)onPreview(built);});
 }

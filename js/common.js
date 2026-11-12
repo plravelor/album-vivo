@@ -1,7 +1,7 @@
 // Contrato de datos compartido entre GitHub Pages y el futuro servidor Raspberry Pi.
 export const SCHEMA_VERSION = 1;
 export const MAX_ITEMS = 12;
-export const MAX_VIDEO_BYTES = 24 * 1024 * 1024; // limite practico de carga via web GitHub (<25 MiB)
+// No hay límite fijo de tamaño en el editor. GitHub sí bloquea archivos >100 MiB.
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 export function validateManifest(m) {
@@ -12,6 +12,7 @@ export function validateManifest(m) {
   for (const [index, it] of m.items.entries()) {
     if (it.targetIndex !== index || typeof it.aspect !== 'number' || it.aspect <= 0 ||
         (it.startAt !== undefined && (typeof it.startAt !== 'number' || !Number.isFinite(it.startAt) || it.startAt < 0)) ||
+        (it.endAt !== undefined && it.endAt !== null && (typeof it.endAt !== 'number' || !Number.isFinite(it.endAt) || it.endAt <= (it.startAt||0))) ||
         !isPlainFilename(it.video) || !isPlainFilename(it.photo)) {
       throw new Error(`El recuerdo ${index + 1} tiene datos inválidos.`);
     }
@@ -66,10 +67,12 @@ export function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export function createItem({title, photo, video, aspect, startAt=0, printWidth=null, printHeight=null}, index) {
+export function createItem({title, photo, video, aspect, startAt=0, endAt=null, printWidth=null, printHeight=null}, index) {
   const number = String(index + 1).padStart(3, '0');
   const suffix = photo.name.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
   return {id:number, title:title || `Recuerdo ${index + 1}`, targetIndex:index,
           photo:`foto-${number}.${suffix}`, video:`video-${number}.mp4`,
-          aspect, startAt:Math.round(startAt*100)/100, printWidth, printHeight, videoMime:'video/mp4'};
+          aspect, startAt:Math.round(startAt*100)/100,
+          ...(endAt!=null?{endAt:Math.round(endAt*100)/100}:{}),
+          printWidth, printHeight, videoMime:'video/mp4'};
 }
