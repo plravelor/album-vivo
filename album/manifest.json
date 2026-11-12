@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "title": "Mis recuerdos Prueba 1",
+  "createdAt": "2026-11-12T22:23:44.481Z",
+  "targets": "targets.mind",
+  "items": [
+    {
+      "id": "001",
+      "title": "Foto 1",
+      "targetIndex": 0,
+      "photo": "foto-001.jpg",
+      "video": "video-001.mp4",
+      "aspect": 0.4619140625,
+      "videoMime": "video/mp4"
+    },
+    {
+      "id": "002",
+      "title": "Foto 2",
+      "targetIndex": 1,
+      "photo": "foto-002.jpg",
+      "video": "video-002.mp4",
+      "aspect": 0.75,
+      "videoMime": "video/mp4"
+    },
+    {
+      "id": "003",
+      "title": "Foto 3",
+      "targetIndex": 2,
+      "photo": "foto-003.jpg",
+      "video": "video-003.mp4",
+      "aspect": 0.75,
+      "videoMime": "video/mp4"
+    },
+    {
+      "id": "004",
+      "title": "Foto 4",
+      "targetIndex": 3,
+      "photo": "foto-004.jpg",
+      "video": "video-004.mp4",
+      "aspect": 0.75,
+      "videoMime": "video/mp4"
+    }
+  ]
+}
