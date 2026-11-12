@@ -1,0 +1,5 @@
+1. Descomprime el ZIP.
+2. Copia el contenido de album/ en la carpeta album/ de tu repositorio.
+3. Sube los cambios con GitHub Desktop.
+4. Las fotografias de este paquete ya se extrajeron de tus videos a resolucion de origen (JPG alta calidad). Imprime esas fotos.
+5. Todo el material publicado mediante GitHub Pages sera accesible por internet.

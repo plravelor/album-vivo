@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "title": "Mis recuerdos",
+  "createdAt": "2026-11-12T23:28:38.151Z",
+  "targets": "targets.mind",
+  "introMs": 700,
+  "items": [
+    {
+      "id": "001",
+      "title": "Video 5",
+      "targetIndex": 0,
+      "photo": "foto-001.jpg",
+      "video": "video-001.mp4",
+      "aspect": 0.5625,
+      "startAt": 0,
+      "printWidth": 720,
+      "printHeight": 1280,
+      "videoMime": "video/mp4"
+    }
+  ]
+}
