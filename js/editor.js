@@ -5,7 +5,7 @@ import { Compiler } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar
 import { MAX_ITEMS, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, SCHEMA_VERSION,
   createItem, downloadBlob, blobToURL, normalizeImage, setStatus } from './common.js';
 
-const $ = (node, selector) => node.querySelector(selector);
+const $ = (selector, node) => node.querySelector(selector);
 
 function waitEvent(node, events, timeoutMs = 14000) {
   return new Promise((resolve, reject) => {
