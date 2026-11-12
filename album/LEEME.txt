@@ -1,0 +1,5 @@
+Esta carpeta alojara los archivos publicados del album.
+Al exportar un album desde la interfaz obtendras un ZIP con una carpeta album/.
+Copia DENTRO de esta carpeta los archivos de esa carpeta album/:
+manifest.json, targets.mind, foto-001.jpg, video-001.mp4, etc.
+No publiques videos privados en GitHub Pages.
