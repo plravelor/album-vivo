@@ -71,8 +71,8 @@ export function createItem({title, photo, video, aspect, startAt=0, endAt=null, 
   const number = String(index + 1).padStart(3, '0');
   const suffix = photo.name.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
   return {id:number, title:title || `Recuerdo ${index + 1}`, targetIndex:index,
-          photo:`foto-${number}.${suffix}`, video:`video-${number}.mp4`,
+          photo:`foto-${number}.${suffix}`, video:`video-${number}.${/\.(mov|mp4|m4v|webm)$/i.exec(video.name)?.[1]?.toLowerCase() || 'mp4'}`,
           aspect, startAt:Math.round(startAt*100)/100,
           ...(endAt!=null?{endAt:Math.round(endAt*100)/100}:{}),
-          printWidth, printHeight, videoMime:'video/mp4'};
+          printWidth, printHeight, videoMime:video.type || (video.name.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4')};
 }

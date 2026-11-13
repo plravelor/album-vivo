@@ -1,11 +1,10 @@
-# Dependencias de Álbum Vivo 2.3
+# Dependencias de Álbum Vivo 2.4
 
-- MindAR 1.2.5: https://github.com/hiukim/mind-ar-js
-- Three.js 0.160.1: https://github.com/mrdoob/three.js/
-- JSZip 3.10.1: https://stuk.github.io/jszip/
-- `@ffmpeg/ffmpeg` 0.12.15 (biblioteca JavaScript MIT): https://www.npmjs.com/package/@ffmpeg/ffmpeg
-- `@ffmpeg/core` 0.12.10 (núcleo WebAssembly, **GPL-2.0-or-later** según npm): https://www.npmjs.com/package/@ffmpeg/core
+- [MindAR 1.2.5](https://github.com/hiukim/mind-ar-js): seguimiento de fotografías mediante cámara.
+- [Three.js 0.160.1](https://github.com/mrdoob/three.js): visualización del video superpuesto.
+- [JSZip 3.10.1](https://stuk.github.io/jszip/): creación e importación local del paquete ZIP.
+- APIs estándar del navegador `HTMLVideoElement`, `Canvas`, `MediaRecorder` y `MediaStream`: vista previa, fotograma, exportación opcional a MP4 y captura local de video.
 
-El editor descarga FFmpeg WebAssembly desde CDN solo cuando se solicita convertir. Para un producto comercial deberás revisar las condiciones de redistribución, el cumplimiento de las obligaciones GPL aplicables al núcleo y las licencias de códecs como H.264/AAC, además de las correspondientes a las bibliotecas AR.
+**Esta versión no incorpora FFmpeg WebAssembly**, para evitar la falla al cargar módulos `blob:` observada en Brave para iPhone. Cuando se solicita conversión, se intenta con MediaRecorder sólo si el navegador declara soporte MP4. La pista de audio puede variar según la implementación.
 
-El código de Álbum Vivo comparte el contrato de datos entre GitHub Pages y la futura Raspberry Pi. No supone cesión de derechos sobre las fotografías ni los videos del propietario.
+Para distribución comercial hay que revisar las licencias de las bibliotecas, los códecs y las obligaciones aplicables. El código compartido del álbum y los originales del propietario deben conservarse independientemente.

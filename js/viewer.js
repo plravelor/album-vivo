@@ -2,7 +2,7 @@
 // Recibe un manifest y rutas locales o remotas, sin saber donde esta alojado el album.
 import * as THREE from 'three';
 import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
-import {validateManifest} from './common.js?v=23';
+import {validateManifest} from './common.js?v=24';
 
 const overlay = document.getElementById('ar-overlay');
 const stage = document.getElementById('ar-stage');
@@ -110,7 +110,7 @@ function createHiddenVideo(url) {
   v.playsInline = true;
   v.setAttribute('playsinline', '');
   v.setAttribute('webkit-playsinline', '');
-  v.loop = false; // Álbum v2.3: el video se detiene al llegar a 30/45 s, o a su final.
+  v.loop = false; // Álbum v2.4: el video se detiene al llegar a 30/45 s, o a su final.
   v.muted = true;
   v.setAttribute('muted', '');
   v.disablePictureInPicture = true;

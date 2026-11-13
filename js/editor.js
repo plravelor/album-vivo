@@ -1,13 +1,13 @@
-// Álbum Vivo v2.3 — editor de recuerdos multipropósito.
+// Álbum Vivo v2.4 — editor de recuerdos multipropósito.
 // Acepta archivos originales MOV, MP4, M4V, WebM, AVI y MKV.
 // Se prioriza extraer el fotograma del archivo ORIGINAL, antes de cualquier conversión.
 import { Compiler } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js';
 import { MAX_ITEMS, MAX_IMAGE_BYTES, SCHEMA_VERSION,
-  createItem, downloadBlob, blobToURL, normalizeImage, setStatus } from './common.js?v=23';
-import { convertToMP4 } from './media-converter.js?v=23';
+  createItem, downloadBlob, blobToURL, normalizeImage, setStatus } from './common.js?v=24';
+import { convertToMP4 } from './media-converter.js?v=24';
 const $ = (selector, node) => node.querySelector(selector);
 const MI_B = 1024*1024;
-const GITHUB_MAX = 100*MI_B;
+const GITHUB_MAX = 100*MI_B; // límite para un solo archivo en git push
 const ACCEPT_EXT = /\.(mp4|m4v|mov|webm|avi|mkv)$/i;
 const mp4Compatible = (name) => /\.mp4$/i.test(name);
 const niceSize = (bytes) => `${(bytes / MI_B).toFixed(1)} MiB`;
@@ -109,7 +109,7 @@ export function setupEditor(onPreview) {
     row._state={version:0,sourceFile:null,playableFile:null,videoURL:null,previewURL:null,photoURL:null,frame:null,duration:0,convertedForPreview:false};
     row.innerHTML=`<div class="pair-header"><span class="pair-title">Nuevo recuerdo</span><button class="pair-remove" type="button">Eliminar</button></div>
       <input type="text" class="pair-name" maxlength="80" placeholder="Nombre del recuerdo (opcional)" aria-label="Nombre del recuerdo">
-      <label class="video-field">Video original (MOV de iPhone, MP4, M4V, WebM, AVI o MKV)
+      <label class="video-field">Video original (MOV de iPhone, MP4 u otro video compatible)
         <input class="pair-video" type="file" accept="video/*,.mov,.mp4,.m4v,.webm,.avi,.mkv" required>
       </label>
       <p class="mini-hint video-hint">Selecciona el video directamente desde Fotos o desde tu computador. No hace falta convertirlo mediante WhatsApp.</p>
@@ -122,11 +122,11 @@ export function setupEditor(onPreview) {
           <label class="setting-label">Duración al mirar la foto
             <select class="clip-duration"><option value="30" selected>Hasta 30 segundos (recomendado)</option><option value="45">Hasta 45 segundos</option><option value="full">Video completo</option></select>
           </label>
-          <label class="check-option"><input type="checkbox" class="make-mp4"> Convertir a MP4 H.264 y recortar físicamente el archivo exportado (más lento)</label>
+          <label class="check-option"><input type="checkbox" class="make-mp4"> Crear copia MP4 para Android / recortar archivo (opcional: tarda aproximadamente lo que dure el video)</label>
           <label class="setting-label">Resolución del video convertido (no afecta la fotografía del original)
             <select class="convert-size"><option value="1920" selected>Hasta Full HD 1080p</option><option value="0">Mantener resolución de origen (más pesado)</option><option value="1280">Hasta 720p (más ligero)</option></select>
           </label>
-          <p class="mini-hint">Sin la casilla de conversión, el límite de 30/45 s se aplica solo al reproducir el álbum; el MP4 publicado conserva el video completo. Si marcas la casilla, el archivo se convierte y recorta al exportarlo.</p>
+          <p class="mini-hint">Sin conversión, guardaremos el MOV o MP4 original y los 30/45 s se aplicarán al verlo. El MOV funciona en iPhone, pero puede fallar en Android. La conversión es opcional y utiliza el grabador del navegador; se comprobará su compatibilidad antes de utilizarla.</p>
         </div>
       </div>
       <details class="advanced-photo"><summary>Avanzado: utilizar otra fotografía (JPG/PNG)</summary>
@@ -150,7 +150,7 @@ export function setupEditor(onPreview) {
       s.videoURL=ownURL(f);
       setRowInfo(row,`Leyendo ${f.name} (${niceSize(f.size)})…`);
       tools.hidden=false;
-      $('.make-mp4',row).checked=!mp4Compatible(f.name);
+      $('.make-mp4',row).checked=false; // No iniciar conversión al seleccionar MOV.
       try {
         await loadMedia(player,s.videoURL);
         if(token!==s.version)return;
@@ -161,21 +161,11 @@ export function setupEditor(onPreview) {
         setRowInfo(row,`Original leído: ${player.videoWidth} × ${player.videoHeight} · ${s.duration.toFixed(1)} s · ${niceSize(f.size)}. Foto extraída del archivo original.`);
       } catch(error) {
         if(token!==s.version)return;
-        setRowInfo(row,`El navegador no abre este códec (${error.message}). Intentando crear una copia MP4 compatible en este equipo…`);
-        try {
-          const converted=await convertToMP4(f,{maxSide:1920,onStatus:m=>setRowInfo(row,m)});
-          if(token!==s.version)return;
-          s.playableFile=converted;s.convertedForPreview=true;
-          revoke(s.videoURL);s.videoURL=ownURL(converted);
-          await loadMedia(player,s.videoURL);
-          if(token!==s.version)return;
-          s.duration=Number.isFinite(player.duration)?player.duration:0;
-          timeInput.max=String(Math.max(0,s.duration-.04));timeInput.value='0';stamp.textContent='0.00 s';
-          await capture(row,0,token);
-          setRowInfo(row,'Convertido para vista previa. Este navegador no pudo extraer el JPG directamente del original: su resolución dependerá de la conversión.',false);
-        } catch(e) {if(token===s.version)setRowInfo(row,e.message,true);}
+        s.playableFile=null;
+        tools.hidden=true;
+        setRowInfo(row,`Este navegador no pudo abrir el original (${error.message}). Prueba desde Fotos de iPhone o convierte el archivo en el Mac con HandBrake; para crear la fotografía necesitamos poder leerlo.`,true);
       }
-      if(f.size>GITHUB_MAX)setRowInfo(row,'Archivo original mayor que 100 MiB. Activa «Convertir a MP4» y elige 30 o 45 s para publicar en GitHub; puedes conservar el original por separado.',false);
+      if(f.size>GITHUB_MAX)setRowInfo(row,`El video pesa ${niceSize(f.size)}. Puedes preparar el ZIP localmente, pero GitHub no permite subir un archivo de más de 100 MiB. Para publicar, prepara una copia menor desde el Mac o convierte en este navegador si lo admite.`,false);
     });
     timeInput.addEventListener('input',()=>{
       invalidate();const t=Number(timeInput.value);stamp.textContent=`${t.toFixed(2)} s`;
@@ -229,8 +219,9 @@ export function setupEditor(onPreview) {
         const remaining=Math.max(0.1,(s.duration||selectedTime+3600)-selectedTime);
         const seconds=maxSeconds===null?null:Math.min(maxSeconds,remaining);
         const userWantsConvert=$('.make-mp4',row).checked;
-        // MOV y formatos ajenos a MP4 deben convertirse para que los vean otros teléfonos.
-        const convert=userWantsConvert||!mp4Compatible(source.name);
+        // En iPhone se puede guardar MOV sin conversión. Eso mantiene calidad y evita
+        // que un conversor no compatible bloquee todo el álbum.
+        const convert=userWantsConvert;
         let publishVideo=source;
         let videoStart=selectedTime;
         let videoEnd=seconds===null?null:selectedTime+seconds;
@@ -247,8 +238,9 @@ export function setupEditor(onPreview) {
           });
           videoStart=0;videoEnd=null; // El video exportado ya está recortado físicamente.
         }
-        if(!mp4Compatible(publishVideo.name))throw new Error(`Recuerdo ${index+1}: el archivo publicado debe ser MP4.`);
-        if(publishVideo.size>GITHUB_MAX)throw new Error(`Recuerdo ${index+1}: el MP4 pesa ${niceSize(publishVideo.size)} y GitHub rechaza archivos mayores que 100 MiB. Selecciona «Convertir», 30/45 segundos y/o 720p.`);
+        if(publishVideo.size>GITHUB_MAX) {
+          setStatus(stateEl,`Aviso: recuerdo ${index+1} pesa ${niceSize(publishVideo.size)}. Se incluirá en el ZIP, pero GitHub no admitirá ese archivo. Guarda el paquete localmente o prepara una copia más pequeña.`,false);
+        }
         pairs.push({photo:printPhoto,video:publishVideo,title:$('.pair-name',row).value.trim(),
           startAt:videoStart,endAt:videoEnd,printWidth:frame.width,printHeight:frame.height});
       }
@@ -274,16 +266,17 @@ export function setupEditor(onPreview) {
         folder.file(manifest.items[index].photo,pairs[index].photo);
         folder.file(manifest.items[index].video,pairs[index].video);
       }
-      folder.file('COMO_PUBLICAR.txt',`ÁLBUM VIVO 2.3\n1. Descomprime este ZIP.\n2. Copia el contenido de su carpeta album/ en album/ del repositorio.\n3. Publica con GitHub Desktop.\n4. Imprime los JPG incluidos.\n5. Para videos mayores de 100 MiB usa conversion o alojamiento alternativo.\n6. Conserva aparte todos los originales MOV de alta calidad.\n`);
+      folder.file('COMO_PUBLICAR.txt',`ÁLBUM VIVO 2.4\n1. Descomprime este ZIP.\n2. Copia el contenido de su carpeta album/ en album/ del repositorio.\n3. Publica con GitHub Desktop.\n4. Imprime los JPG incluidos.\n5. Videos mayores de 100 MiB no se pueden publicar con GitHub; conserva el ZIP local.\n6. Los videos MOV originales pueden reproducirse en iPhone pero no necesariamente en Android. Para máxima compatibilidad usa MP4 H.264.
+7. Para privacidad NO publiques este ZIP en GitHub Pages; ábrelo localmente con la función Importar ZIP privado.\n`);
       setStatus(stateEl,'Creando ZIP. Si los archivos son grandes puede tardar y consumir memoria…');
       const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
       built={blob,manifest,imageTargetSrc:blobToURL(data,'application/octet-stream'),
         items:manifest.items.map((it,i)=>({...it,videoURL:ownURL(pairs[i].video)}))};
       download.disabled=false;preview.disabled=false;guide.hidden=false;
-      setStatus(stateEl,`${pairs.length} recuerdo(s) preparados · ZIP ${niceSize(blob.size)}. Fotografías para imprimir y MP4 compatibles incluidos.`);
+      setStatus(stateEl,`${pairs.length} recuerdo(s) preparados · ZIP ${niceSize(blob.size)}. Foto(s) imprimibles y video(s) originales o convertidos. Los MOV podrían no funcionar en Android.`);
     }catch(e){console.error(e);setStatus(stateEl,`No se pudo preparar: ${e.message||e}`,true);}
     finally{prepare.disabled=false;}
   });
-  download.addEventListener('click',()=>{if(built)downloadBlob(built.blob,'album-vivo-contenido-v2.3.zip');});
+  download.addEventListener('click',()=>{if(built)downloadBlob(built.blob,'album-vivo-contenido-v2.4.zip');});
   preview.addEventListener('click',()=>{if(built)onPreview(built);});
 }
